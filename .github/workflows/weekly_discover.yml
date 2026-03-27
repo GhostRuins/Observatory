@@ -1,0 +1,32 @@
+name: Weekly source discovery
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+jobs:
+  discover-sources:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run discovery against Ollama
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OLLAMA_HOST: ${{ secrets.OLLAMA_HOST }}
+        run: python -m pipeline.discover

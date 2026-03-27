@@ -1,0 +1,180 @@
+# Living Data Observatory — Cursor Rules
+# Stack: FastAPI + Next.js 14 + Ollama (local LLMs) + PostgreSQL + GitHub Actions
+# Cost: $0 — fully free, no paid APIs
+
+# ─────────────────────────────────────────────
+# PROJECT STRUCTURE
+# ─────────────────────────────────────────────
+
+# Backend lives in /backend, frontend in /frontend.
+# Never mix Python and JS/TS files in the same directory.
+# All Ollama/LLM calls must go through backend/pipeline/llm_client.py — never call httpx or the ollama SDK directly elsewhere.
+# All database queries must go through backend/db/postgres.py — never import asyncpg directly in route files.
+# All environment variables must be read via backend/core/config.py (pydantic BaseSettings) — never use os.getenv() directly.
+# Pipeline scripts must be runnable standalone (e.g. python -m pipeline.ingest) for GitHub Actions cron jobs.
+
+# ─────────────────────────────────────────────
+# LOCAL LLM / OLLAMA RULES
+# ─────────────────────────────────────────────
+
+# Ollama runs locally at http://localhost:11434 — this is the base URL for all LLM calls.
+# Use the OpenAI-compatible endpoint: POST /api/chat with {"model": ..., "messages": [...], "stream": false}.
+# Never use the Anthropic SDK, OpenAI SDK, or any paid API — all AI calls go through Ollama.
+
+# MODEL ASSIGNMENTS — use the right model for each task:
+#   Data cleaning & normalisation  → llama3          (fast, reliable instruction-following)
+#   Chart type & config generation → qwen             (strong structured JSON output)
+#   Source discovery & evaluation  → deepseek-r1:32b  (best reasoning, used sparingly)
+
+# All model name constants are defined in backend/pipeline/llm_client.py:
+#   MODEL_CLEANING  = "llama3"
+#   MODEL_CHART     = "qwen"
+#   MODEL_DISCOVERY = "deepseek-r1:32b"
+# Never hardcode model name strings outside of llm_client.py.
+
+# Always request JSON output explicitly in the prompt when structured data is needed.
+# Always wrap LLM responses in try/except — if JSON parsing fails, log and fall back to rule-based logic.
+# Always set a timeout on Ollama HTTP calls (default: 60s for llama3/qwen, 120s for deepseek-r1:32b).
+# DeepSeek R1 32b is expensive on RAM — only invoke it during scheduled discovery runs, never on hot paths.
+# All system prompts live as constants in backend/pipeline/prompts.py — never inline long prompts in function bodies.
+# When calling the source discovery task, results must land in a pending_sources table for manual review — never auto-activate new sources.
+
+# ─────────────────────────────────────────────
+# DATA CLEANING RULES (pandas-first, LLM-assist)
+# ─────────────────────────────────────────────
+
+# Always attempt rule-based cleaning first using pandas before falling back to an LLM call.
+# Rule-based cleaning handles: missing values, column name normalisation, type coercion, duplicate rows, unit standardisation.
+# Only invoke llama3 for cleaning when the dataset has ambiguous column names or unstructured string fields that rules cannot handle.
+# Cleaning functions live in backend/pipeline/clean.py.
+# Every cleaning function must be idempotent — running it twice on the same data must produce the same result.
+# Always preserve the original raw snapshot before cleaning — never mutate the raw data in place.
+
+# ─────────────────────────────────────────────
+# CHART SUGGESTION RULES
+# ─────────────────────────────────────────────
+
+# Use the rules engine in backend/pipeline/chart_suggest.py as the primary chart type selector:
+#   Time-series (datetime column detected)     → line chart
+#   Categorical with ≤12 categories            → bar chart
+#   Two continuous variables                   → scatter chart
+#   Single value over time (GDP, temp index)   → area chart
+#   Geographic data (country/region column)    → choropleth
+#   Distribution (single numeric column)       → histogram
+# Only call qwen if the rules engine returns "unknown" — ask it to output a JSON chart config object.
+# Chart config schema: { type, title, x_key, y_key, color_key?, unit?, source_name, last_updated }
+# Chart configs are stored in the datasets table — never recomputed on every frontend request.
+
+# ─────────────────────────────────────────────
+# DATA SOURCES & TOPICS
+# ─────────────────────────────────────────────
+
+# All seeded sources are defined in backend/seeds/sources.py as a list of SourceConfig objects.
+# Never hardcode source URLs inside pipeline functions — always read from the sources table in Postgres.
+# Each source must have: name, url, topic, fetch_format (json/csv/xml), refresh_interval_hours, is_active.
+# Topics and their metadata (display name, color, icon) are defined once in backend/core/topics.py.
+# Topic colour assignments (used by both backend and frontend):
+#   climate    → teal     (#1D9E75)
+#   health     → coral    (#D85A30)
+#   economics  → blue     (#378ADD)
+#   politics   → purple   (#7F77DD)
+#   general    → gray     (#888780)
+# The frontend reads topic colours from frontend/lib/topics.ts — keep it in sync with backend/core/topics.py.
+
+# ─────────────────────────────────────────────
+# SCHEDULING — GitHub Actions (no APScheduler)
+# ─────────────────────────────────────────────
+
+# Scheduling is handled entirely by GitHub Actions cron — do NOT use APScheduler or Celery.
+# Pipeline scripts must be executable as standalone Python modules from the repo root.
+# Workflow files live in .github/workflows/:
+#   daily_pipeline.yml   — runs ingest + clean + chart_suggest at 02:00 UTC daily
+#   weekly_discover.yml  — runs source discovery at 03:00 UTC every Sunday
+# Each workflow sets env vars from GitHub Actions Secrets (DATABASE_URL, OLLAMA_HOST, etc.).
+# If running locally, Ollama is at http://localhost:11434.
+# If running in GitHub Actions, Ollama must be self-hosted or skipped — LLM steps should degrade
+# gracefully to rule-based fallback when OLLAMA_HOST is not set.
+# Always add a --dry-run flag to pipeline scripts so they can be tested without writing to the database.
+
+# ─────────────────────────────────────────────
+# PYTHON / FASTAPI RULES
+# ─────────────────────────────────────────────
+
+# Always use async/await for all FastAPI route handlers and database calls.
+# Always use pydantic v2 models for request/response validation — never return raw dicts from routes.
+# Use the lifespan context manager for startup/shutdown (not the deprecated @app.on_event).
+# Route files live in backend/routers/ — one router per domain: datasets, sources, charts, health.
+# Use HTTPException with explicit status codes and detail strings — never let unhandled exceptions reach the client.
+# Use structlog for all logging — never use print() or the stdlib logging module directly.
+# Type-hint every function. Never use Any unless unavoidable — add a comment explaining why.
+# Use httpx (async) for all outbound HTTP calls — never use requests in async contexts.
+# Use tenacity for retry logic on flaky external data sources — max 3 retries, exponential backoff.
+# If a source fails during a pipeline run, log to source_health table and continue — never abort the whole run.
+
+# ─────────────────────────────────────────────
+# DATABASE RULES
+# ─────────────────────────────────────────────
+
+# Use asyncpg for all database access — never use synchronous psycopg2 in async contexts.
+# All schema changes are written as numbered migration files in backend/db/migrations/ (e.g. 001_initial.sql).
+# Never use raw ALTER TABLE outside of a migration file.
+# Always use parameterised queries — never use f-strings or .format() to build SQL strings.
+# Always store timestamps as TIMESTAMPTZ (UTC) — never naive datetimes.
+# Every table must have created_at and updated_at columns.
+# Key tables: sources, datasets, datapoints, chart_configs, pending_sources, source_health.
+# Free Postgres options: Supabase free tier or Neon free tier — connection string goes in DATABASE_URL env var.
+
+# ─────────────────────────────────────────────
+# FRONTEND / NEXT.JS RULES
+# ─────────────────────────────────────────────
+
+# Use Next.js 14 App Router — never use the Pages Router.
+# Default to server components — mark client components explicitly with "use client".
+# All backend calls go through frontend/lib/apiClient.ts — never use raw fetch() in components.
+# Chart components live in frontend/components/charts/ — use Recharts for all rendering.
+# Do not mix D3 DOM manipulation with React state — use Recharts abstractions only.
+# Use Tailwind CSS utility classes only — no custom CSS files except globals.css for resets.
+# Topic colours are defined in frontend/lib/topics.ts — never hardcode hex values in components.
+# Every ChartCard must display: dataset title, source name, last updated timestamp, and a link to the original source.
+# The dashboard must show a "last refreshed" badge that reads from the most recent pipeline run timestamp.
+
+# ─────────────────────────────────────────────
+# SECURITY & SECRETS
+# ─────────────────────────────────────────────
+
+# Never hardcode database URLs, secrets, or host addresses in source files.
+# Backend secrets go in .env (gitignored). Frontend secrets go in .env.local (gitignored).
+# CI/CD secrets go in GitHub Actions Secrets — never in workflow yml files directly.
+# Required env vars — fail fast on startup if any are missing:
+#   DATABASE_URL, OLLAMA_HOST (default: http://localhost:11434)
+# Never log database connection strings or any PII.
+
+# ─────────────────────────────────────────────
+# FREE HOSTING TARGETS
+# ─────────────────────────────────────────────
+
+# Frontend: Vercel free tier (vercel.com) — deploy from GitHub, automatic preview deployments.
+# Backend API: Render free tier (render.com) — spins down after 15min inactivity, acceptable for portfolio.
+# Database: Supabase free tier or Neon free tier — 500MB–1GB Postgres, enough for hundreds of datasets.
+# Scheduling: GitHub Actions cron — free for public repos, no always-on process needed.
+# Object storage: not needed — raw snapshots stored as JSONB in Postgres on free tier.
+# Total monthly cost: $0.
+
+# ─────────────────────────────────────────────
+# CODE STYLE
+# ─────────────────────────────────────────────
+
+# Python: PEP 8, ruff for linting, max line length 100.
+# TypeScript: strict mode enabled, no implicit any.
+# Descriptive variable names — no single-letter variables outside loop indices.
+# Functions do one thing — if over 40 lines, split it.
+# Every module has a one-line docstring at the top describing its purpose.
+# Every public function has a docstring: what it does, parameters, return value.
+
+# ─────────────────────────────────────────────
+# GIT & WORKFLOW
+# ─────────────────────────────────────────────
+
+# Commit messages follow conventional commits: feat:, fix:, chore:, docs:, refactor:
+# Never commit directly to main — use feature branches.
+# Every pipeline stage must support --dry-run for safe local testing.

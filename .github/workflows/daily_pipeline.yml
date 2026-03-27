@@ -1,0 +1,33 @@
+name: Daily data pipeline
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest-clean-chart:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ingest, clean, and chart suggestion
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OLLAMA_HOST: ${{ secrets.OLLAMA_HOST }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python -m pipeline.ingest --full

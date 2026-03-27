@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --topic-climate: #1d9e75;
+  --topic-health: #d85a30;
+  --topic-economics: #378add;
+  --topic-politics: #7f77dd;
+  --topic-general: #888780;
+  --bg: #0b1220;
+  --surface: #111827;
+  --muted: #94a3b8;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: #e5e7eb;
+  background: radial-gradient(1200px 600px at 20% -10%, #1f2937 0%, var(--bg) 55%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
