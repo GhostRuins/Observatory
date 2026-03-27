@@ -12,32 +12,52 @@ type ChartCardProps = {
 /**
  * Card shell around a chart with metadata, provenance, and freshness context.
  */
+function resolveChartType(cfg: Record<string, unknown>): string {
+  const raw =
+    (typeof cfg.type === "string" && cfg.type) ||
+    (typeof cfg.chart_type === "string" && cfg.chart_type) ||
+    (typeof cfg.chartType === "string" && cfg.chartType) ||
+    "";
+  const t = raw.trim().toLowerCase();
+  if (t === "line" || t === "bar" || t === "area" || t === "scatter") return t;
+  return "bar";
+}
+
 export function ChartCard({ chart }: ChartCardProps) {
   const cfg = chart.chart_config;
   const title =
     typeof cfg.title === "string" && cfg.title.length > 0
       ? cfg.title
       : chart.source_name;
-  const chartType = typeof cfg.type === "string" ? cfg.type : "bar";
+  const chartType = resolveChartType(cfg);
   const accent = topicColor(chart.topic_slug);
+
+  const sourceHref =
+    typeof chart.source_url === "string" && chart.source_url.trim().length > 0
+      ? chart.source_url.trim()
+      : undefined;
 
   return (
     <article
-      className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-lg shadow-black/30"
+      className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-lg shadow-black/30"
       style={{ borderTopColor: accent, borderTopWidth: 3 }}
     >
       <div className="space-y-1 border-b border-white/10 px-4 py-3">
         <h2 className="text-base font-semibold text-white">{title}</h2>
         <p className="text-xs text-slate-400">
           Source:{" "}
-          <a
-            href={chart.source_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sky-300 underline-offset-2 hover:underline"
-          >
-            {chart.source_name}
-          </a>
+          {sourceHref ? (
+            <a
+              href={sourceHref}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sky-300 underline-offset-2 hover:underline"
+            >
+              {chart.source_name}
+            </a>
+          ) : (
+            <span className="text-slate-300">{chart.source_name}</span>
+          )}
         </p>
         {chart.last_updated && (
           <p className="text-xs text-slate-500">

@@ -17,7 +17,8 @@ import structlog
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from core.config import get_settings
-from db.postgres import execute, fetch_all, fetch_one, get_pool
+from core.json_flatten import flatten_world_bank_style_rows
+from db.postgres import ensure_schema_and_seeds, execute, fetch_all, fetch_one, get_pool
 from pipeline.chart_suggest import suggest_chart
 from pipeline.clean import clean_dataset
 
@@ -29,6 +30,37 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _expand_parallel_arrays(obj: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """
+    Expand Open-Meteo-style blocks: daily.time + daily.series as parallel arrays.
+
+    Without this, the whole response becomes one row and charts show a single bar.
+    """
+    for group in ("daily", "hourly", "minutely_15"):
+        block = obj.get(group)
+        if not isinstance(block, dict):
+            continue
+        times = block.get("time")
+        if not isinstance(times, list) or not times:
+            continue
+        n = len(times)
+        series_keys = [
+            k
+            for k, v in block.items()
+            if k != "time" and isinstance(v, list) and len(v) == n
+        ]
+        if not series_keys:
+            continue
+        out: list[dict[str, Any]] = []
+        for i in range(n):
+            row: dict[str, Any] = {"time": times[i], "date": times[i]}
+            for k in series_keys:
+                row[k] = block[k][i]
+            out.append(row)
+        return out
+    return None
+
+
 def _json_to_records(payload: Any) -> list[dict[str, Any]]:
     """Normalise arbitrary JSON into a list of flat dict rows where possible."""
     if payload is None:
@@ -36,8 +68,19 @@ def _json_to_records(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         if all(isinstance(x, dict) for x in payload):
             return [dict(x) for x in payload]
+        # World Bank indicator API: [ {page metadata}, [ {observation}, ... ] ]
+        if len(payload) >= 2 and isinstance(payload[1], list):
+            second = payload[1]
+            if second and all(isinstance(x, dict) for x in second):
+                return [dict(x) for x in second]
+            nested = _json_to_records(second)
+            if nested:
+                return nested
         return [{"value": x} for x in payload]
     if isinstance(payload, dict):
+        expanded = _expand_parallel_arrays(payload)
+        if expanded:
+            return expanded
         for key in ("data", "results", "observations", "items", "rows", "records"):
             inner = payload.get(key)
             if isinstance(inner, list) and inner:
@@ -53,6 +96,10 @@ def _json_to_records(payload: Any) -> list[dict[str, Any]]:
                             rows.append(ind)
             if rows:
                 return rows
+        # SDMX / GHO-style: top-level "value" array of observation dicts
+        val = payload.get("value")
+        if isinstance(val, list) and val and all(isinstance(x, dict) for x in val):
+            return [dict(x) for x in val]
         return [dict(payload)]
     return [{"value": payload}]
 
@@ -88,7 +135,8 @@ def _normalise_body_to_records(body: str, fetch_format: str) -> list[dict[str, A
     fmt = fetch_format.lower().strip()
     if fmt == "json":
         payload = json.loads(body)
-        return _json_to_records(payload)
+        records = _json_to_records(payload)
+        return flatten_world_bank_style_rows(records)
     if fmt == "csv":
         return _csv_text_to_records(body)
     if fmt == "xml":
@@ -118,6 +166,7 @@ async def ingest_all(dry_run: bool = False) -> None:
     Continues after individual source failures; never aborts the full run for one error.
     """
     settings = get_settings()
+    await ensure_schema_and_seeds(settings.database_url)
     pool = await get_pool(settings.database_url)
     rows = await fetch_all(
         pool,

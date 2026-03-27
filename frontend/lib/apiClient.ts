@@ -31,7 +31,7 @@ export async function fetchCharts(topic?: string): Promise<ChartView[]> {
   if (topic) params.set("topic", topic);
   const query = params.toString();
   const url = `${API_BASE}/charts${query ? `?${query}` : ""}`;
-  const res = await fetch(url, { next: { revalidate: 120 } });
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to load charts: ${res.status}`);
   }
@@ -42,7 +42,7 @@ export async function fetchCharts(topic?: string): Promise<ChartView[]> {
  * Return API health including last pipeline completion time for the refresh badge.
  */
 export async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch(`${API_BASE}/health`, { next: { revalidate: 30 } });
+  const res = await fetch(`${API_BASE}/health`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to load health: ${res.status}`);
   }

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Strongly typed settings; required variables must be present or startup fails."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

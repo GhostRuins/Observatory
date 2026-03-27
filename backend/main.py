@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core.config import get_settings
-from db.postgres import apply_initial_migration, close_pool, get_pool
+from db.postgres import close_pool, ensure_schema_and_seeds, get_pool
 from routers import charts, datasets, health, sources
-from seeds.sources import seed_sources
 
 logger = structlog.get_logger(__name__)
 
@@ -36,9 +39,7 @@ async def lifespan(app: FastAPI):
     configure_logging()
     app.state.started_at = time.time()
     settings = get_settings()
-    pool = await get_pool(settings.database_url)
-    await apply_initial_migration(pool)
-    await seed_sources()
+    await ensure_schema_and_seeds(settings.database_url)
     logger.info("application_ready")
     yield
     await close_pool()
@@ -52,6 +53,26 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Add a hint when the path is unknown (default Starlette 404)."""
+        if exc.status_code == 404 and exc.detail == "Not Found":
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": "Not Found",
+                    "path": request.url.path,
+                    "hint": (
+                        "Routes are at the URL root, not under /api. "
+                        "Try GET /health, GET /charts, GET /docs (OpenAPI), or GET /api for a route list."
+                    ),
+                },
+            )
+        return await http_exception_handler(request, exc)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -63,16 +84,36 @@ def create_app() -> FastAPI:
     app.include_router(datasets.router)
     app.include_router(sources.router)
     app.include_router(charts.router)
+
+    @app.get("/")
+    async def root() -> dict[str, str]:
+        """Lightweight root endpoint for uptime probes."""
+        return {"service": "living-data-observatory", "docs": "/docs"}
+
+    @app.get("/api")
+    async def api_discovery() -> dict[str, Any]:
+        """
+        Common landing path — this API does not use an /api prefix on routes.
+
+        Use the paths below (same origin, no /api prefix).
+        """
+        return {
+            "service": "living-data-observatory",
+            "note": "Endpoints are mounted at the root (e.g. /health), not /api/health.",
+            "docs": "/docs",
+            "openapi": "/openapi.json",
+            "endpoints": {
+                "health": "/health",
+                "charts": "/charts",
+                "sources": "/sources",
+                "datasets": "/datasets",
+            },
+        }
+
     return app
 
 
 app = create_app()
-
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    """Lightweight root endpoint for uptime probes."""
-    return {"service": "living-data-observatory", "docs": "/docs"}
 
 
 if __name__ == "__main__":

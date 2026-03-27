@@ -11,7 +11,7 @@ from typing import Any
 import structlog
 
 from core.config import get_settings
-from db.postgres import execute, fetch_all, get_pool
+from db.postgres import ensure_schema_and_seeds, execute, fetch_all, get_pool
 from pipeline.llm_client import MODEL_DISCOVERY, call_ollama_json
 from pipeline.prompts import SYSTEM_DISCOVERY
 
@@ -49,6 +49,7 @@ async def discover_candidates(dry_run: bool = False) -> None:
     Never activates sources automatically — human review is required.
     """
     settings = get_settings()
+    await ensure_schema_and_seeds(settings.database_url)
     pool = await get_pool(settings.database_url)
     topic_rows = await fetch_all(pool, "SELECT id, slug FROM topics")
     topic_ids = {str(r["slug"]): int(r["id"]) for r in topic_rows}

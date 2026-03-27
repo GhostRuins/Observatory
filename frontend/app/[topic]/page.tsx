@@ -6,6 +6,8 @@ import { TopicFilter } from "@/components/TopicFilter";
 import { fetchCharts, fetchHealth } from "@/lib/apiClient";
 import { TOPICS, type TopicSlug } from "@/lib/topics";
 
+export const dynamic = "force-dynamic";
+
 type TopicPageProps = {
   params: { topic: string };
 };
@@ -46,7 +48,9 @@ export default async function TopicPage({ params }: TopicPageProps) {
 
       {charts.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-6 text-sm text-slate-400">
-          No charts for this topic yet. Confirm ingestion has completed for matching sources.
+          No charts for this topic yet. Confirm the backend is running,{" "}
+          <code className="text-slate-300">NEXT_PUBLIC_API_URL</code> matches it, and ingestion has written
+          datasets for sources in this topic.
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   Area,
   AreaChart as RAreaChart,
@@ -9,6 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+import { formatTooltipScalar } from "@/lib/chartData";
 
 type AreaChartProps = {
   /** Normalised point rows with at least x and y keys. */
@@ -21,13 +24,14 @@ type AreaChartProps = {
  * Recharts area chart emphasising magnitude of a single series.
  */
 export function AreaChart({ data, stroke = "#34d399", fill = "#34d399" }: AreaChartProps) {
+  const gradientId = useId().replace(/:/g, "");
   const safe = data.filter((d) => d.x !== undefined && d.y !== undefined);
   return (
-    <div className="h-64 w-full">
+    <div className="h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
         <RAreaChart data={safe}>
           <defs>
-            <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={fill} stopOpacity={0.8} />
               <stop offset="95%" stopColor={fill} stopOpacity={0} />
             </linearGradient>
@@ -36,6 +40,8 @@ export function AreaChart({ data, stroke = "#34d399", fill = "#34d399" }: AreaCh
           <XAxis dataKey="x" stroke="#94a3b8" tick={{ fontSize: 11 }} />
           <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} />
           <Tooltip
+            formatter={(value: unknown) => formatTooltipScalar(value)}
+            labelFormatter={(label: unknown) => formatTooltipScalar(label)}
             contentStyle={{ background: "#0f172a", border: "1px solid #334155" }}
             labelStyle={{ color: "#e2e8f0" }}
           />
@@ -44,7 +50,7 @@ export function AreaChart({ data, stroke = "#34d399", fill = "#34d399" }: AreaCh
             dataKey="y"
             stroke={stroke}
             fillOpacity={1}
-            fill="url(#areaFill)"
+            fill={`url(#${gradientId})`}
           />
         </RAreaChart>
       </ResponsiveContainer>

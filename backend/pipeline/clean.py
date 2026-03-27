@@ -60,11 +60,27 @@ def _rules_clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _coerce_rename_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Unwrap common LLM JSON shapes: {'mapping': {...}}, {'rename_map': {...}}, etc.
+
+    Returns a flat dict of original_column -> new_snake_case_name.
+    """
+    if not data:
+        return {}
+    for key in ("mapping", "rename_map", "renames", "column_map", "columns"):
+        inner = data.get(key)
+        if isinstance(inner, dict) and inner:
+            return dict(inner)
+    return data
+
+
 async def _llm_rename_mapping(columns: list[str], sample_rows: list[dict[str, Any]]) -> dict[str, str]:
     """Ask llama3 for a rename map; returns {} on failure."""
     user_payload = {"columns": columns, "sample": sample_rows[:15]}
     user_message = json.dumps(user_payload, ensure_ascii=False)
-    data = await call_ollama_json(MODEL_CLEANING, SYSTEM_CLEANING_RENAME, user_message)
+    raw = await call_ollama_json(MODEL_CLEANING, SYSTEM_CLEANING_RENAME, user_message)
+    data = _coerce_rename_payload(raw)
     mapping: dict[str, str] = {}
     if not data:
         return mapping

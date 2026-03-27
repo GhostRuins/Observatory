@@ -60,8 +60,8 @@ SEEDED_SOURCES: tuple[SourceConfig, ...] = (
         topic_slug="economics",
         name="World Bank — GDP (current US$)",
         url=(
-            "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.CD"
-            "?format=json&per_page=100&mrv=5"
+            "https://api.worldbank.org/v2/country/USA/indicator/NY.GDP.MKTP.CD"
+            "?format=json&per_page=20000"
         ),
         fetch_format="json",
     ),
@@ -78,8 +78,8 @@ SEEDED_SOURCES: tuple[SourceConfig, ...] = (
         topic_slug="politics",
         name="World Bank — government effectiveness estimate",
         url=(
-            "https://api.worldbank.org/v2/country/all/indicator/GE.EST"
-            "?format=json&per_page=100&mrv=5"
+            "https://api.worldbank.org/v2/country/USA/indicator/GE.EST"
+            "?format=json&per_page=20000"
         ),
         fetch_format="json",
     ),
@@ -113,6 +113,7 @@ def _fred_source(settings: Settings) -> SourceConfig | None:
     url = (
         "https://api.stlouisfed.org/fred/series/observations?"
         f"series_id=UNRATE&api_key={key}&file_type=json"
+        "&sort_order=asc&limit=100000"
     )
     return SourceConfig(
         topic_slug="economics",

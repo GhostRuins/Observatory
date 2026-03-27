@@ -11,6 +11,8 @@ import {
   ZAxis,
 } from "recharts";
 
+import { formatTooltipScalar } from "@/lib/chartData";
+
 type ScatterChartProps = {
   /** Normalised point rows with numeric x and y keys. */
   data: Array<Record<string, unknown>>;
@@ -39,7 +41,7 @@ export function ScatterChart({ data, fill = "#f472b6" }: ScatterChartProps) {
     })
     .filter((d): d is { x: number; y: number } => d !== null);
   return (
-    <div className="h-64 w-full">
+    <div className="h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
         <RScatterChart>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -48,6 +50,8 @@ export function ScatterChart({ data, fill = "#f472b6" }: ScatterChartProps) {
           <ZAxis range={[60, 60]} />
           <Tooltip
             cursor={{ strokeDasharray: "3 3" }}
+            formatter={(value: unknown) => formatTooltipScalar(value)}
+            labelFormatter={(label: unknown) => formatTooltipScalar(label)}
             contentStyle={{ background: "#0f172a", border: "1px solid #334155" }}
             labelStyle={{ color: "#e2e8f0" }}
           />

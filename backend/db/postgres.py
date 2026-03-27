@@ -53,6 +53,20 @@ async def apply_initial_migration(pool: asyncpg.Pool) -> None:
     logger.info("migration_applied", migration="001_initial.sql")
 
 
+async def ensure_schema_and_seeds(dsn: str) -> None:
+    """
+    Apply migration (topics + schema) and seed sources.
+
+    Idempotent. Use from FastAPI lifespan and from CLI entrypoints so `pipeline.ingest`
+    works without having started uvicorn first.
+    """
+    pool = await get_pool(dsn)
+    await apply_initial_migration(pool)
+    from seeds.sources import seed_sources  # lazy import: seeds depend on this module
+
+    await seed_sources()
+
+
 async def fetch_one(
     pool: asyncpg.Pool,
     query: str,

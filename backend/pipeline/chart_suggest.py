@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 import structlog
 
+from core.chart_axes import pick_y_numeric_name
 from pipeline.llm_client import MODEL_CHART, call_ollama_json
 from pipeline.prompts import SYSTEM_CHART_JSON
 
@@ -22,11 +23,30 @@ def _now_iso() -> str:
 
 def _detect_datetime_column(df: pd.DataFrame) -> str | None:
     """Return the first column that parses mostly as datetimes, if any."""
+    # World Bank and similar APIs use `date` with year strings like "2024" (len 4) — always try first.
+    priority_names = frozenset({"date", "year", "period", "obs_time"})
+    for col in df.columns:
+        if str(col).lower() not in priority_names:
+            continue
+        series = df[col]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return str(col)
+        if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
+            parsed = pd.to_datetime(series, errors="coerce", utc=True)
+            ratio = float(parsed.notna().mean()) if len(series) else 0.0
+            if ratio >= 0.6:
+                return str(col)
     for col in df.columns:
         series = df[col]
         if pd.api.types.is_datetime64_any_dtype(series):
             return str(col)
         if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
+            sample = series.dropna().astype(str)
+            if len(sample) == 0:
+                continue
+            # Skip short token columns (country codes, categories) to avoid noisy parsing.
+            if int(sample.str.len().max()) <= 4 and int(sample.nunique()) <= 24:
+                continue
             parsed = pd.to_datetime(series, errors="coerce", utc=True)
             ratio = float(parsed.notna().mean()) if len(series) else 0.0
             if ratio >= 0.6:
@@ -56,10 +76,10 @@ def _categorical_columns(df: pd.DataFrame, max_unique: int) -> list[str]:
 
 def _region_column(df: pd.DataFrame) -> str | None:
     """Return the first column named country or region (case-insensitive), if any."""
-    for col in df.columns:
-        lowered = str(col).lower()
-        if lowered in ("country", "region"):
-            return str(col)
+    for want in ("country_name", "country", "region"):
+        for col in df.columns:
+            if str(col).lower() == want:
+                return str(col)
     return None
 
 
@@ -89,22 +109,24 @@ async def suggest_chart(df: pd.DataFrame, source_name: str) -> dict[str, Any]:
     nums = _numeric_columns(df)
 
     if dt_col is not None and nums:
+        y_line = pick_y_numeric_name(nums, dt_col=dt_col) or nums[0]
         return {
             **base,
             "type": "line",
             "title": f"{source_name} over time",
             "x_key": dt_col,
-            "y_key": nums[0],
+            "y_key": y_line,
         }
 
     region_col = _region_column(df)
     if region_col is not None and nums:
+        y_bar = pick_y_numeric_name(nums, dt_col=None) or nums[0]
         return {
             **base,
             "type": "bar",
             "title": f"{source_name} by {region_col}",
             "x_key": region_col,
-            "y_key": nums[0],
+            "y_key": y_bar,
         }
 
     if len(nums) == 2:
